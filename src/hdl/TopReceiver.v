@@ -1,6 +1,6 @@
-module Top (
+module TopReceiver (
     input clk,
     input rst
 );
     // TODO
-endmodule : Top
+endmodule : TopReceiver
