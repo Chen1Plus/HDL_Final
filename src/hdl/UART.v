@@ -11,7 +11,7 @@ module UART (
     wire baud_pulse;
 
     PulseGen #(.OUT_FREQ(9600)) pg0 (
-        .rst(rst),
+        .rst(1'b0),
         .clk(clk),
         .out(baud_pulse)
     );
