@@ -26,7 +26,7 @@ module UART (
     always @(posedge clk) begin
         if (rst)
             state <= IDLE;
-        else case (state)
+        else case (state) // @suppress "Default clause missing from case statement"
             IDLE: begin
                 if (send) begin
                     state     <= SEND;
