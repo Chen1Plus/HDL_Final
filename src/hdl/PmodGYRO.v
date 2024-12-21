@@ -4,7 +4,6 @@
 module PmodGYRO (
 	input            rst,
 	input            clk,
-	input            start,
 
 	output  reg         begin_transmission,
 	input            end_transmission,
@@ -12,7 +11,6 @@ module PmodGYRO (
 	output   reg        slave_select,
 	output reg [7:0]     send_data,
 
-	output reg [7:0]     temp_data,
 	output reg [15:0]    x_axis_data,
 	output reg [15:0]    y_axis_data,
 	output reg [15:0]    z_axis_data
@@ -20,7 +18,7 @@ module PmodGYRO (
 
 	parameter [2:0] StateTYPE_idle = 0,
 	StateTYPE_setup = 1,
-	StateTYPE_temp = 2,
+	// StateTYPE_temp = 2,
 	StateTYPE_run = 3,
 	StateTYPE_hold = 4,
 	StateTYPE_wait_ss = 5,
@@ -32,7 +30,7 @@ module PmodGYRO (
 	// with read and multiple bytes not selected
 	// output data rate of 100 Hz
 	// will output 8.75 mdps/digit at 250 dps maximum
-	parameter [15:0] SETUP_GYRO = 16'h0F20;
+	parameter [16:0] SETUP_GYRO = 16'h0F20;
 	// address of X_AXIS (0x28) with read and multiple bytes selected (0xC0)
 	parameter [7:0]  DATA_READ_BEGIN = 8'hE8;
 	// address of TEMP (0x26) with read selected (0x80)
@@ -41,20 +39,14 @@ module PmodGYRO (
 	parameter        MAX_BYTE_COUNT = 6;
 	reg [2:0]        byte_count;
 
-	parameter [11:0] SS_COUNT_MAX = 12'hFFF;
+	parameter [11:0] SS_COUNT_MAX = 12'h0FF; // FFF
 	reg [11:0]       ss_count;
 
-	parameter [23:0] COUNT_WAIT_MAX = 24'h7FFFFF; //X"000FFF";
+	parameter [23:0] COUNT_WAIT_MAX = 24'h00FFFF; //X"000FFF"; // 7FFFFF
 	reg [23:0]       count_wait;
 	reg [47:0]       axis_data;
 
-	// ==============================================================================
-	// 										Implementation
-	// ==============================================================================
 
-	//---------------------------------------------------
-	// 				  Master Controller FSM
-	//---------------------------------------------------
 	always @(posedge clk) begin: spi_interface
 
 		if (rst == 1'b1) begin
@@ -75,7 +67,6 @@ module PmodGYRO (
 			StateTYPE_idle :
 			begin
 				slave_select <= 1'b1;
-				if (start == 1'b1)
 				begin
 					byte_count <= 0;
 					axis_data <= {48{1'b0}};
@@ -84,53 +75,24 @@ module PmodGYRO (
 			end
 
 			// setup
-			StateTYPE_setup :
-			if (byte_count < 2)
-				begin
-					if(byte_count == 0) begin
-						send_data <= SETUP_GYRO[7:0];
-					end
-					else begin
-						send_data <= SETUP_GYRO[15:8];
-					end
-					slave_select <= 1'b0;
-					byte_count <= byte_count + 1'b1;
-					begin_transmission <= 1'b1;
-					previousSTATE <= StateTYPE_setup;
-					STATE <= StateTYPE_hold;
-				end
-			else
-				begin
-					byte_count <= 0;
-					previousSTATE <= StateTYPE_setup;
-					STATE <= StateTYPE_wait_ss;
-				end
-
-				// temp
-			StateTYPE_temp :
-			if (byte_count == 0)
-				begin
-					slave_select <= 1'b0;
-					send_data <= TEMP_READ_BEGIN;
-					byte_count <= byte_count + 1'b1;
-					begin_transmission <= 1'b1;
-					previousSTATE <= StateTYPE_temp;
-					STATE <= StateTYPE_hold;
-				end
-			else if (byte_count == 1)
-				begin
-					send_data <= 8'h00;
-					byte_count <= byte_count + 1'b1;
-					begin_transmission <= 1'b1;
-					previousSTATE <= StateTYPE_temp;
-					STATE <= StateTYPE_hold;
-				end
-			else
-				begin
-					byte_count <= 0;
-					previousSTATE <= StateTYPE_temp;
-					STATE <= StateTYPE_wait_ss;
-				end
+			StateTYPE_setup:
+			if (byte_count < 2) begin
+				case (byte_count)
+					0: send_data <= SETUP_GYRO[7:0];
+					1: send_data <= SETUP_GYRO[15:8];
+					// 2: send_data <= SETUP_GYRO[23:16];
+					// default: send_data <= SETUP_GYRO[31:24];
+				endcase
+				slave_select <= 1'b0;
+				byte_count <= byte_count + 1'b1;
+				begin_transmission <= 1'b1;
+				previousSTATE <= StateTYPE_setup;
+				STATE <= StateTYPE_hold;
+			end else begin
+				byte_count <= 0;
+				previousSTATE <= StateTYPE_setup;
+				STATE <= StateTYPE_wait_ss;
+			end
 
 				// run
 			StateTYPE_run :
@@ -162,14 +124,10 @@ module PmodGYRO (
 				end
 
 				// hold
-			StateTYPE_hold :
-			begin
+			StateTYPE_hold: begin
 				begin_transmission <= 1'b0;
-				if (end_transmission == 1'b1)
-				begin
-					if (previousSTATE == StateTYPE_temp & byte_count != 1)
-						temp_data <= recieved_data;
-					else if (previousSTATE == StateTYPE_run & byte_count != 1) begin
+				if (end_transmission == 1'b1) begin
+					if (previousSTATE == StateTYPE_run & byte_count != 1) begin
 						case (byte_count)
 							3'd2 : axis_data[7:0] <= recieved_data;
 							3'd3 : axis_data[15:8] <= recieved_data;
@@ -202,15 +160,10 @@ module PmodGYRO (
 			StateTYPE_wait_run :
 			begin
 				begin_transmission <= 1'b0;
-				if (start == 1'b0)
-					STATE <= StateTYPE_idle;
 				if (count_wait == COUNT_WAIT_MAX)
 					begin
-						count_wait <= {24{1'b0}};
-						if (previousSTATE == StateTYPE_temp)
+						count_wait <= 0;
 							STATE <= StateTYPE_run;
-						else
-							STATE <= StateTYPE_temp;
 					end
 				else
 					count_wait <= count_wait + 1'b1;
@@ -235,11 +188,6 @@ module PmodGYRO_SPI_IF (
 	output reg mosi,
 	output sclk
 );
-	// ==============================================================================
-	// 						     Parameters, Registers, and Wires
-	// ==============================================================================
-
-
 	parameter [15:0] SPI_CLK_COUNT_MAX = 16'hFFFF;
 	reg [15:0]       spi_clk_count;
 
@@ -256,92 +204,80 @@ module PmodGYRO_SPI_IF (
 	RxTxTYPE_hold = 2;
 	reg [1:0]        RxTxSTATE;
 
-	// ==============================================================================
-	// 										Implementation
-	// ==============================================================================
-
-	//---------------------------------------------------
-	// 							  FSM
-	//---------------------------------------------------
 	always @(posedge clk)
 	begin: tx_rx_process
 
-		begin
-			if (rst == 1'b1)
+
+		if (rst == 1'b1)
+			begin
+				mosi <= 1'b1;
+				RxTxSTATE <= RxTxTYPE_idle;
+				recieved_data <= {8{1'b0}};
+				shift_register <= {8{1'b0}};
+			end
+		else
+			case (RxTxSTATE)
+
+				// idle
+				RxTxTYPE_idle :
 				begin
-					mosi <= 1'b1;
-					RxTxSTATE <= RxTxTYPE_idle;
-					recieved_data <= {8{1'b0}};
-					shift_register <= {8{1'b0}};
+					end_transmission <= 1'b0;
+					if (begin_transmission == 1'b1)
+					begin
+						RxTxSTATE <= RxTxTYPE_rx_tx;
+						rx_count <= {4{1'b0}};
+						shift_register <= send_data;
+					end
 				end
-			else
-				case (RxTxSTATE)
 
-					// idle
-					RxTxTYPE_idle :
+				// rx_tx
+				RxTxTYPE_rx_tx :
+				//send bit
+				if (rx_count < RX_COUNT_MAX)
 					begin
-						end_transmission <= 1'b0;
-						if (begin_transmission == 1'b1)
+						if (sclk_previous == 1'b1 & sclk_buffer == 1'b0)
+							mosi <= shift_register[7];
+							//recieve bit
+						else if (sclk_previous == 1'b0 & sclk_buffer == 1'b1)
 						begin
-							RxTxSTATE <= RxTxTYPE_rx_tx;
-							rx_count <= {4{1'b0}};
-							shift_register <= send_data;
+							shift_register[7:1] <= shift_register[6:0];
+							shift_register[0] <= miso;
+							rx_count <= rx_count + 1'b1;
 						end
 					end
-
-					// rx_tx
-					RxTxTYPE_rx_tx :
-					//send bit
-					if (rx_count < RX_COUNT_MAX)
-						begin
-							if (sclk_previous == 1'b1 & sclk_buffer == 1'b0)
-								mosi <= shift_register[7];
-								//recieve bit
-							else if (sclk_previous == 1'b0 & sclk_buffer == 1'b1)
-							begin
-								shift_register[7:1] <= shift_register[6:0];
-								shift_register[0] <= miso;
-								rx_count <= rx_count + 1'b1;
-							end
-						end
-					else
-						begin
-							RxTxSTATE <= RxTxTYPE_hold;
-							end_transmission <= 1'b1;
-							recieved_data <= shift_register;
-						end
-
-						// hold
-					RxTxTYPE_hold :
+				else
 					begin
-						end_transmission <= 1'b0;
-						if (slave_select == 1'b1)
-							begin
-								mosi <= 1'b1;
-								RxTxSTATE <= RxTxTYPE_idle;
-							end
-						else if (begin_transmission == 1'b1)
-						begin
-							RxTxSTATE <= RxTxTYPE_rx_tx;
-							rx_count <= {4{1'b0}};
-							shift_register <= send_data;
-						end
+						RxTxSTATE <= RxTxTYPE_hold;
+						end_transmission <= 1'b1;
+						recieved_data <= shift_register;
 					end
-				endcase
-		end
+
+					// hold
+				RxTxTYPE_hold :
+				begin
+					end_transmission <= 1'b0;
+					if (slave_select == 1'b1)
+						begin
+							mosi <= 1'b1;
+							RxTxSTATE <= RxTxTYPE_idle;
+						end
+					else if (begin_transmission == 1'b1)
+					begin
+						RxTxSTATE <= RxTxTYPE_rx_tx;
+						rx_count <= {4{1'b0}};
+						shift_register <= send_data;
+					end
+				end
+			endcase
 	end
 
-
-	//---------------------------------------------------
-	// 						Serial Clock
-	//---------------------------------------------------
 	always @(posedge clk) begin: spi_clk_generation
 		begin
 			if (rst == 1'b1)
 				begin
 					sclk_previous <= 1'b1;
 					sclk_buffer <= 1'b1;
-					spi_clk_count <= {12{1'b0}};
+					spi_clk_count <= 0;
 				end
 
 			else if (RxTxSTATE == RxTxTYPE_rx_tx)
@@ -349,7 +285,7 @@ module PmodGYRO_SPI_IF (
 					if (spi_clk_count == SPI_CLK_COUNT_MAX)
 						begin
 							sclk_buffer <= (~sclk_buffer);
-							spi_clk_count <= {12{1'b0}};
+							spi_clk_count <= 0;
 						end
 					else
 						begin

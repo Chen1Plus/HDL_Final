@@ -11,18 +11,11 @@ module PmodGYROTest (
 
     output reg [15:0] led
 );
-    // wire clk_div;
-
-    // ClkDivider cd0 (
-    //     .clk(clk),
-    //     .clk_div(clk_div)
-    // );
 
     wire        begin_transmission;
     wire        end_transmission;
     wire  [7:0] send_data;
     wire  [7:0] recieved_data;
-    wire  [7:0] temp_data;
     wire [15:0] x_axis_data;
     wire [15:0] y_axis_data;
     wire [15:0] z_axis_data;
@@ -35,8 +28,6 @@ module PmodGYROTest (
         .clk(clk),
         .rst(rst),
         .slave_select(gyro_cs),
-        .start(1'b1),
-        .temp_data(temp_data),
         .x_axis_data(x_axis_data),
         .y_axis_data(y_axis_data),
         .z_axis_data(z_axis_data)
