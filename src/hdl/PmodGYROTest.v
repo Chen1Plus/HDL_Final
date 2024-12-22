@@ -11,56 +11,25 @@ module PmodGYROTest (
 
     output reg [15:0] led
 );
+    wire [15:0] data_x;
+    wire [15:0] data_y;
+    wire [15:0] data_z;
 
-    wire        begin_transmission;
-    wire        end_transmission;
-    wire  [7:0] send_data;
-    wire  [7:0] recieved_data;
-    wire [15:0] x_axis_data;
-    wire [15:0] y_axis_data;
-    wire [15:0] z_axis_data;
-
-    PmodGYRO C0(
-        .tx_begin(begin_transmission),
-        .tx_end(end_transmission),
-        .tx_data(send_data),
-        .rx_data(recieved_data),
-        .clk(clk),
-        .rst(rst),
-        .cs(gyro_cs),
-        .data_x(x_axis_data),
-        .data_y(y_axis_data),
-        .data_z(z_axis_data)
-    );
-
-    SPI C1(
-        .tx_begin(begin_transmission),
-        .tx_data(send_data),
-        .rx_data(recieved_data),
-        .miso(gyro_miso),
-        .clk(clk),
-        .rst(rst),
-        .tx_end(end_transmission),
-        .mosi(gyro_mosi),
-        .sclk(gyro_sclk)
+    PmodGYRO pgyro0 (
+        .rst   (rst),
+        .clk   (clk),
+        .cs    (gyro_cs),
+        .sclk  (gyro_sclk),
+        .mosi  (gyro_mosi),
+        .miso  (gyro_miso),
+        .data_x(data_x),
+        .data_y(data_y),
+        .data_z(data_z)
     );
 
     always @* case (sw)
-        2'b00:   led <= x_axis_data;
-        2'b01:   led <= y_axis_data;
-        default: led <= z_axis_data;
+        2'b00:   led <= data_x;
+        2'b01:   led <= data_y;
+        default: led <= data_z;
     endcase
 endmodule : PmodGYROTest
-
-module ClkDivider (
-    input  clk,
-    output clk_div
-);
-    reg [26:0] cnt;
-
-    always @(posedge clk) begin
-        cnt = cnt + 1;
-    end
-    assign clk_div = cnt[26];
-endmodule : ClkDivider
-

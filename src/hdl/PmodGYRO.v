@@ -1,15 +1,11 @@
-// Referenced from Digilent's Pmod GYRO example verilog code:
-//     https://digilent.com/reference/pmod/pmodgyro/start?srsltid=AfmBOor91e3Js_zrFL9VKoTqcAMjqbupqQyhrsuab8iH9Zj7xSVBp1uQ
-
 module PmodGYRO (
-	input            rst,
-	input            clk,
+	input rst,
+	input clk,
 
-	output  reg         tx_begin,
-	input            tx_end,
-	input [7:0]      rx_data,
-	output   reg        cs,
-	output reg [7:0]     tx_data,
+	output reg cs,
+	output     sclk,
+	output     mosi,
+	input      miso,
 
 	output reg [15:0] data_x,
 	output reg [15:0] data_y,
@@ -22,6 +18,23 @@ module PmodGYRO (
 	// multiple read (0xC0) from OUT_X_L (0x28)
 	localparam READ_DATA_CMD = 8'hE8;
 	// ========================================================================
+
+	reg        tx_begin;
+	wire       tx_end;
+	reg  [7:0] tx_data;
+	wire [7:0] rx_data;
+
+	SPI s0 (
+		.rst     (rst),
+		.clk     (clk),
+		.tx_begin(tx_begin),
+		.tx_end  (tx_end),
+		.tx_data (tx_data),
+		.rx_data (rx_data),
+		.sclk    (sclk),
+		.mosi    (mosi),
+		.miso    (miso)
+	);
 
 	reg [2:0] state;
 	reg [2:0] state_next;
