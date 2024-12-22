@@ -21,13 +21,13 @@ module PmodGYROTest (
     wire [15:0] z_axis_data;
 
     PmodGYRO C0(
-        .begin_transmission(begin_transmission),
-        .end_transmission(end_transmission),
-        .send_data(send_data),
-        .recieved_data(recieved_data),
+        .tx_begin(begin_transmission),
+        .tx_end(end_transmission),
+        .tx_data(send_data),
+        .rx_data(recieved_data),
         .clk(clk),
         .rst(rst),
-        .slave_select(gyro_cs),
+        .cs(gyro_cs),
         .x_axis_data(x_axis_data),
         .y_axis_data(y_axis_data),
         .z_axis_data(z_axis_data)

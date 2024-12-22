@@ -5,11 +5,11 @@ module PmodGYRO (
 	input            rst,
 	input            clk,
 
-	output  reg         begin_transmission,
-	input            end_transmission,
-	input [7:0]      recieved_data,
-	output   reg        slave_select,
-	output reg [7:0]     send_data,
+	output  reg         tx_begin,
+	input            tx_end,
+	input [7:0]      rx_data,
+	output   reg        cs,
+	output reg [7:0]     tx_data,
 
 	output reg [15:0]    x_axis_data,
 	output reg [15:0]    y_axis_data,
@@ -46,7 +46,7 @@ module PmodGYRO (
 	always @(posedge clk) begin: spi_interface
 
 		if (rst == 1'b1) begin
-			slave_select <= 1'b1;
+			cs <= 1'b1;
 			byte_count <= 0;
 			count_wait <= {24{1'b0}};
 			axis_data <= {48{1'b0}};
@@ -59,10 +59,9 @@ module PmodGYRO (
 		end
 		else case (STATE)
 
-			// idle
 			StateTYPE_idle :
 			begin
-				slave_select <= 1'b1;
+				cs <= 1'b1;
 				begin
 					byte_count <= 0;
 					axis_data <= {48{1'b0}};
@@ -70,18 +69,17 @@ module PmodGYRO (
 				end
 			end
 
-			// setup
 			StateTYPE_setup:
 			if (byte_count < 2) begin
 				case (byte_count)
-					0: send_data <= SETUP_GYRO[7:0];
-					1: send_data <= SETUP_GYRO[15:8];
+					0: tx_data <= SETUP_GYRO[7:0];
+					1: tx_data <= SETUP_GYRO[15:8];
 					// 2: send_data <= SETUP_GYRO[23:16];
 					// default: send_data <= SETUP_GYRO[31:24];
 				endcase
-				slave_select <= 1'b0;
+				cs <= 1'b0;
 				byte_count <= byte_count + 1'b1;
-				begin_transmission <= 1'b1;
+				tx_begin <= 1'b1;
 				previousSTATE <= StateTYPE_setup;
 				STATE <= StateTYPE_hold;
 			end else begin
@@ -90,22 +88,21 @@ module PmodGYRO (
 				STATE <= StateTYPE_wait_ss;
 			end
 
-			// run
 			StateTYPE_run :
 			if (byte_count == 0)
 				begin
-					slave_select <= 1'b0;
-					send_data <= DATA_READ_BEGIN;
+					cs <= 1'b0;
+					tx_data <= DATA_READ_BEGIN;
 					byte_count <= byte_count + 1'b1;
-					begin_transmission <= 1'b1;
+					tx_begin <= 1'b1;
 					previousSTATE <= StateTYPE_run;
 					STATE <= StateTYPE_hold;
 				end
 			else if (byte_count <= 6)
 				begin
-					send_data <= 8'h00;
+					tx_data <= 8'h00;
 					byte_count <= byte_count + 1'b1;
-					begin_transmission <= 1'b1;
+					tx_begin <= 1'b1;
 					previousSTATE <= StateTYPE_run;
 					STATE <= StateTYPE_hold;
 				end
@@ -119,18 +116,17 @@ module PmodGYRO (
 					STATE <= StateTYPE_wait_ss;
 				end
 
-				// hold
 			StateTYPE_hold: begin
-				begin_transmission <= 1'b0;
-				if (end_transmission == 1'b1) begin
+				tx_begin <= 1'b0;
+				if (tx_end == 1'b1) begin
 					if (previousSTATE == StateTYPE_run & byte_count != 1) begin
 						case (byte_count)
-							3'd2 : axis_data[7:0] <= recieved_data;
-							3'd3 : axis_data[15:8] <= recieved_data;
-							3'd4 : axis_data[23:16] <= recieved_data;
-							3'd5 : axis_data[31:24] <= recieved_data;
-							3'd6 : axis_data[39:32] <= recieved_data;
-							3'd7 : axis_data[47:40] <= recieved_data;
+							3'd2 : axis_data[7:0] <= rx_data;
+							3'd3 : axis_data[15:8] <= rx_data;
+							3'd4 : axis_data[23:16] <= rx_data;
+							3'd5 : axis_data[31:24] <= rx_data;
+							3'd6 : axis_data[39:32] <= rx_data;
+							3'd7 : axis_data[47:40] <= rx_data;
 							default : ;
 						endcase
 					end
@@ -138,97 +134,29 @@ module PmodGYRO (
 				end
 			end
 
-			// wait_ss
 			StateTYPE_wait_ss :
 			begin
-				begin_transmission <= 1'b0;
+				tx_begin <= 1'b0;
 				if (ss_count == SS_COUNT_MAX)
 					begin
-						slave_select <= 1'b1;
-						ss_count <= {12{1'b0}};
+						cs <= 1'b1;
+						ss_count <= 0;
 						STATE <= StateTYPE_wait_run;
 					end
 				else
 					ss_count <= ss_count + 1'b1;
 			end
 
-			// wait_run
 			StateTYPE_wait_run :
 			begin
-				begin_transmission <= 1'b0;
-				if (count_wait == COUNT_WAIT_MAX)
-					begin
-						count_wait <= 0;
-						STATE <= StateTYPE_run;
-					end
-				else
+				tx_begin <= 1'b0;
+				if (count_wait == COUNT_WAIT_MAX) begin
+					count_wait <= 0;
+					STATE <= StateTYPE_run;
+				end else
 					count_wait <= count_wait + 1'b1;
 			end
 		endcase
 	end
 
 endmodule : PmodGYRO
-
-module SPI (
-	input rst,
-	input clk,
-
-	input            tx_begin,
-	output reg       tx_end,
-	input      [7:0] tx_data,
-	output reg [7:0] rx_data,
-
-	output reg sclk,
-	output reg mosi,
-	input      miso
-);
-	wire       sclk_next;
-	reg [16:0] sclk_cnt;
-
-	always @(posedge clk) begin : SCLK_GEN
-		sclk <= sclk_next;
-		if (rst) begin
-			sclk <= 1'b1;
-			sclk_cnt <= {{15{1'b1}}, 2'b00};
-		end
-		else if (state == RXTX)
-			sclk_cnt <= sclk_cnt + 1;
-		else
-			sclk_cnt <= {{15{1'b1}}, 2'b00};
-	end
-	assign sclk_next = sclk_cnt[16];
-
-	reg       state;
-	reg [3:0] bit_cnt;
-	reg [7:0] shift_reg;
-
-	localparam IDLE = 1'b0;
-	localparam RXTX = 1'b1;
-
-	always @(posedge clk) begin : TX_PROC
-		if (rst == 1'b1)
-			state <= IDLE;
-		else case (state)
-			IDLE: begin
-				tx_end <= 1'b0;
-				if (tx_begin == 1'b1) begin
-					state     <= RXTX;
-					bit_cnt   <= 0;
-					shift_reg <= tx_data;
-				end
-			end
-			RXTX: begin
-				if (bit_cnt >= 8) begin
-					state   <= IDLE;
-					tx_end  <= 1'b1;
-					rx_data <= shift_reg;
-				end else if (sclk && !sclk_next) begin
-					mosi <= shift_reg[7];
-				end else if (!sclk && sclk_next) begin
-					bit_cnt   <= bit_cnt + 1;
-					shift_reg <= {shift_reg[6:0], miso};
-				end
-			end
-		endcase
-	end
-endmodule : SPI
