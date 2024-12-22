@@ -39,7 +39,7 @@ module SPI (
 			state   <= IDLE;
 			tx_end  <= 1'b0;
 			rx_data <= 8'h00;
-		end else case (state)
+		end else case (state) // @suppress "Default clause missing from case statement"
 			IDLE: begin
 				tx_end <= 1'b0;
 				if (tx_begin == 1'b1) begin
