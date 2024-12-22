@@ -11,137 +11,116 @@ module PmodGYRO (
 	output   reg        cs,
 	output reg [7:0]     tx_data,
 
-	output reg [15:0]    x_axis_data,
-	output reg [15:0]    y_axis_data,
-	output reg [15:0]    z_axis_data
+	output reg [15:0] data_x,
+	output reg [15:0] data_y,
+	output reg [15:0] data_z
 );
+	// Pmod GYRO pre-defined constants ========================================
+	// write (0x00) value XX to register YY, format: XX (0x00 | YY)
+	localparam SETUP_LEN = 3;
+	localparam SETUP_CMD = 48'h0021_1024_0F20;
+	// multiple read (0xC0) from OUT_X_L (0x28)
+	localparam READ_DATA_CMD = 8'hE8;
+	// ========================================================================
+
 	reg [2:0] state;
-	reg [2:0] state_prev;
+	reg [2:0] state_next;
 
-	localparam IDLE = 3'd0;
+	localparam IDLE  = 3'd0;
 	localparam SETUP = 3'd1;
-	localparam StateTYPE_run = 3'd3;
-	localparam StateTYPE_hold = 3'd4;
-	localparam StateTYPE_wait_run = 3'd6;
+	localparam RUN   = 3'd2;
+	localparam HOLD  = 3'd3;
+	localparam WAIT  = 3'd4;
 
-	// setup control register 1 to enable x, y, and z. CTRL_REG1 (0x20)
-	// with read and multiple bytes not selected
-	// output data rate of 100 Hz
-	// will output 8.75 mdps/digit at 250 dps maximum
-	parameter [16:0] SETUP_GYRO = 16'h0F20;
-	// address of X_AXIS (0x28) with read and multiple bytes selected (0xC0)
-	parameter [7:0]  DATA_READ_BEGIN = 8'hE8;
+	reg  [2:0] byte_cnt;
+	reg  [1:0] setup_cnt;
+	reg [15:0] wait_cnt;
+	reg [47:0] data;
 
-	reg [2:0]        byte_count;
+	localparam WAIT_CS  = 16'h00FF; // FF
+	localparam WAIT_RUN = 16'hFFFF; // FFFF
 
-	parameter [11:0] SS_COUNT_MAX = 12'h0FF; // FFF
-	reg [11:0]       ss_count;
-
-	parameter [23:0] COUNT_WAIT_MAX = 24'h00FFFF; //X"000FFF"; // 7FFFFF
-	reg [23:0]       count_wait;
-	reg [47:0]       axis_data;
-
-
-	always @(posedge clk) begin: spi_interface
-
-		if (rst == 1'b1) begin
-			cs <= 1'b1;
-			byte_count <= 0;
-			count_wait <= {24{1'b0}};
-			axis_data <= {48{1'b0}};
-			x_axis_data <= {16{1'b0}};
-			y_axis_data <= {16{1'b0}};
-			z_axis_data <= {16{1'b0}};
-			ss_count <= {12{1'b0}};
-			state <= IDLE;
-			state_prev <= IDLE;
-		end
-		else case (state)
-
+	always @(posedge clk) begin
+		if (rst) begin
+			// internal state
+			state     <= IDLE;
+			setup_cnt <= 0;
+			wait_cnt  <= 0;
+			// output
+			cs     <= 1'b1;
+			data_x <= 0;
+			data_y <= 0;
+			data_z <= 0;
+		end else case (state)
 			IDLE: begin
-				cs <= 1'b1;
-				byte_count <= 0;
-				axis_data <= {48{1'b0}};
-				state <= SETUP;
+				state    <= SETUP;
+				byte_cnt <= 0;
 			end
-
-			SETUP:
-			if (byte_count < 2) begin
-				case (byte_count)
-					0: tx_data <= SETUP_GYRO[7:0];
-					1: tx_data <= SETUP_GYRO[15:8];
-					// 2: send_data <= SETUP_GYRO[23:16];
-					// default: send_data <= SETUP_GYRO[31:24];
-				endcase
-				cs <= 1'b0;
-				byte_count <= byte_count + 1'b1;
-				tx_begin <= 1'b1;
-				state_prev <= SETUP;
-				state <= StateTYPE_hold;
-			end else begin
-				byte_count <= 0;
-				state_prev <= SETUP;
-				state <= StateTYPE_wait_run;
+			SETUP: begin
+				if (byte_cnt < 2) begin
+					state      <= HOLD;
+					state_next <= SETUP;
+					byte_cnt   <= byte_cnt + 1;
+					cs         <= 1'b0;
+					tx_begin   <= 1'b1;
+					tx_data    <= (SETUP_CMD >> (setup_cnt * 8)) >> (byte_cnt * 8);
+				end else begin
+					if (setup_cnt < SETUP_LEN - 1) begin
+						state      <= WAIT;
+						state_next <= SETUP;
+						setup_cnt  <= setup_cnt + 1;
+					end else begin
+						state      <= WAIT;
+						state_next <= RUN;
+						setup_cnt  <= 0;
+					end
+					byte_cnt <= 0;
+				end
 			end
-
-			StateTYPE_run :
-			if (byte_count == 0)
-				begin
-					cs <= 1'b0;
-					tx_data <= DATA_READ_BEGIN;
-					byte_count <= byte_count + 1'b1;
-					tx_begin <= 1'b1;
-					state_prev <= StateTYPE_run;
-					state <= StateTYPE_hold;
+			RUN: begin
+				if (byte_cnt < 7) begin
+					state      <= HOLD;
+					state_next <= RUN;
+					byte_cnt   <= byte_cnt + 1;
+					cs         <= 1'b0;
+					tx_begin   <= 1'b1;
+					tx_data    <= byte_cnt ? 8'h00 : READ_DATA_CMD;
+				end else begin
+					state      <= WAIT;
+					state_next <= RUN;
+					byte_cnt   <= 0;
+					data_x     <= data[15:0];
+					data_y     <= data[31:16];
+					data_z     <= data[47:32];
 				end
-			else if (byte_count <= 6)
-				begin
-					tx_data <= 8'h00;
-					byte_count <= byte_count + 1'b1;
-					tx_begin <= 1'b1;
-					state_prev <= StateTYPE_run;
-					state <= StateTYPE_hold;
-				end
-			else
-				begin
-					byte_count <= 0;
-					x_axis_data <= axis_data[15:0];
-					y_axis_data <= axis_data[31:16];
-					z_axis_data <= axis_data[47:32];
-					state_prev <= StateTYPE_run;
-					state <= StateTYPE_wait_run;
-				end
-
-			StateTYPE_hold: begin
+			end
+			HOLD: begin
 				tx_begin <= 1'b0;
 				if (tx_end == 1'b1) begin
-					if (state_prev == StateTYPE_run & byte_count != 1) begin
-						case (byte_count)
-							3'd2 : axis_data[7:0] <= rx_data;
-							3'd3 : axis_data[15:8] <= rx_data;
-							3'd4 : axis_data[23:16] <= rx_data;
-							3'd5 : axis_data[31:24] <= rx_data;
-							3'd6 : axis_data[39:32] <= rx_data;
-							3'd7 : axis_data[47:40] <= rx_data;
-							default : ;
-						endcase
-					end
-					state <= state_prev;
+					state <= state_next;
+					if (state_next == RUN) case (byte_cnt)
+						2: data[7:0]   <= rx_data;
+						3: data[15:8]  <= rx_data;
+						4: data[23:16] <= rx_data;
+						5: data[31:24] <= rx_data;
+						6: data[39:32] <= rx_data;
+						7: data[47:40] <= rx_data;
+						default:; // @suppress "Empty case branch. Add a body or explanatory comment"
+					endcase
 				end
 			end
-
-			StateTYPE_wait_run :
-			begin
+			WAIT: begin
 				tx_begin <= 1'b0;
-				if (!cs && count_wait == SS_COUNT_MAX) begin
-					cs <= 1'b1;
-					count_wait <= 0;
-				end else if (cs && count_wait == COUNT_WAIT_MAX) begin
-					count_wait <= 0;
-					state <= StateTYPE_run;
+				if (!cs && wait_cnt == WAIT_CS) begin
+					wait_cnt <= 0;
+					cs       <= 1'b1;
+				end else if (cs && wait_cnt == WAIT_RUN) begin
+					state    <= state_next;
+					wait_cnt <= 0;
 				end else
-					count_wait <= count_wait + 1'b1;
+					wait_cnt <= wait_cnt + 1;
 			end
+			default: state <= IDLE;
 		endcase
 	end
 endmodule : PmodGYRO

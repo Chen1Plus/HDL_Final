@@ -28,9 +28,9 @@ module PmodGYROTest (
         .clk(clk),
         .rst(rst),
         .cs(gyro_cs),
-        .x_axis_data(x_axis_data),
-        .y_axis_data(y_axis_data),
-        .z_axis_data(z_axis_data)
+        .data_x(x_axis_data),
+        .data_y(y_axis_data),
+        .data_z(z_axis_data)
     );
 
     SPI C1(
