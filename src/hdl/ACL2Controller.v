@@ -1,4 +1,106 @@
 module ACL2Controller(
+        input wire clk,
+        input wire rst,
+
+        output wire cs,
+        output wire mosi,
+        input wire miso,
+        input wire sclk,
+
+        output reg [11:0] acc_x,
+        output reg [11:0] acc_y,
+        output reg [11:0] acc_z
+    );
+
+    reg action_read;
+    reg [7:0] addr, din;
+    wire [11:0] dout;
+    wire finished;
+    ACL2SpiController acl2(.rst(rst),
+                        .cs(cs), .mosi(mosi), .miso(miso), .sclk(sclk),
+                        .action_read(action_read), .addr(addr), .din(din),
+                        .finished(finished), .dout(dout));
+
+    reg [2:0] state, next_state;
+    reg [11:0] next_acc_x, next_acc_y, next_acc_z;
+    localparam INIT = 0;
+    localparam SET_RANGE = 1;
+    localparam GET_ACC_X = 2;
+    localparam GET_ACC_Y = 3;
+    localparam GET_ACC_Z = 4;
+                
+    always @(posedge sclk, posedge rst) begin
+        if (rst) begin
+            state <= INIT;
+            acc_x <= 0;
+            acc_y <= 0;
+            acc_z <= 0;
+        end else begin
+            state <= next_state;
+            acc_x <= next_acc_x;
+            acc_y <= next_acc_y;
+            acc_z <= next_acc_z;
+        end
+    end
+
+    always @(*) begin
+        din = 0;
+        next_acc_x = acc_x;
+        next_acc_y = acc_y;
+        next_acc_z = acc_z;
+        next_state = state;
+        case (state)
+            INIT: begin
+                action_read = 0;
+                addr = 8'h2d;
+                din = 8'h02;
+                if (finished) begin
+                    next_state = SET_RANGE;
+                end
+            end
+            SET_RANGE: begin
+                action_read = 0;
+                addr = 8'h2c;
+                din = 8'b00010011;
+                if (finished) begin
+                    next_state = GET_ACC_X;
+                end
+            end
+            GET_ACC_X: begin
+                action_read = 1;
+                addr = 8'h0e;
+                if (finished) begin
+                    next_acc_x = dout;
+                    next_state = GET_ACC_Y;
+                end
+            end
+            GET_ACC_Y: begin
+                action_read = 1;
+                addr = 8'h10;
+                if (finished) begin
+                    next_acc_y = dout;
+                    next_state = GET_ACC_Z;
+                end
+            end
+            GET_ACC_Z: begin
+                action_read = 1;
+                addr = 8'h12;
+                if (finished) begin
+                    next_acc_z = dout;
+                    next_state = GET_ACC_X;
+                end
+            end
+            default: begin
+                addr = 8'h0;
+                action_read = 0;
+                next_state = INIT;
+            end
+        endcase
+    end
+endmodule
+
+
+module ACL2SpiController(
     input wire rst,
     output reg cs,
     output reg mosi,
@@ -12,13 +114,13 @@ module ACL2Controller(
     );
 
     reg [2:0] state, next_state;
-    parameter HOLD = 0;
-    parameter SEND_COMMAND = 1;
-    parameter SEND_ADDRESS = 2;
-    parameter READ_LSB = 3;
-    parameter READ_MSB = 4;
-    parameter SEND_VALUE = 5;
-    parameter FINISH = 6;
+    localparam HOLD = 0;
+    localparam SEND_COMMAND = 1;
+    localparam SEND_ADDRESS = 2;
+    localparam READ_LSB = 3;
+    localparam READ_MSB = 4;
+    localparam SEND_VALUE = 5;
+    localparam FINISH = 6;
 
     reg [2:0] i, next_i;
     reg [11:0] next_dout;
@@ -35,8 +137,8 @@ module ACL2Controller(
         end
     end
 
-    parameter [7:0] COMMAND_READ = 8'b00001011;
-    parameter [7:0] COMMAND_WRITE = 8'b00001010;
+    localparam [7:0] COMMAND_READ = 8'b00001011;
+    localparam [7:0] COMMAND_WRITE = 8'b00001010;
 
     always @(*) begin
         next_dout = dout;
