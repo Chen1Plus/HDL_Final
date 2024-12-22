@@ -16,20 +16,20 @@ module SPI (
 	localparam IDLE = 1'b0;
 	localparam TXRX = 1'b1;
 
-	wire       sclk_next;
-	reg [16:0] sclk_cnt;
+	wire      sclk_next;
+	reg [3:0] sclk_cnt;
 
 	always @(posedge clk) begin : SCLK_GEN
 		sclk <= sclk_next;
 		if (rst) begin
 			sclk <= 1'b1;
-			sclk_cnt <= {{15{1'b1}}, 2'b00};
+			sclk_cnt <= 4'hC;
 		end else case (state)
 			TXRX:    sclk_cnt <= sclk_cnt + 1;
-			default: sclk_cnt <= {{15{1'b1}}, 2'b00};
+			default: sclk_cnt <= 4'hC;
 		endcase
 	end
-	assign sclk_next = sclk_cnt[16];
+	assign sclk_next = sclk_cnt[3];
 
 	reg [3:0] bit_cnt;
 	reg [7:0] shift_reg;
