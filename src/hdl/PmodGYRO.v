@@ -47,23 +47,20 @@ module PmodGYRO (
 
 	reg  [2:0] byte_cnt;
 	reg  [1:0] setup_cnt;
-	reg [15:0] wait_cnt;
+	reg [23:0] wait_cnt;
 	reg [47:0] data;
 
-	localparam WAIT_CS  = 16'h00FF; // FF
-	localparam WAIT_RUN = 16'hFFFF; // FFFF
+	localparam WAIT_RUN = 24'hFFFFFF;
 
 	always @(posedge clk) begin
 		if (rst) begin
-			// internal state
 			state     <= IDLE;
 			setup_cnt <= 0;
 			wait_cnt  <= 0;
-			// output
-			cs     <= 1'b1;
-			data_x <= 0;
-			data_y <= 0;
-			data_z <= 0;
+			cs        <= 1'b1;
+			data_x    <= 0;
+			data_y    <= 0;
+			data_z    <= 0;
 		end else case (state)
 			IDLE: begin
 				state    <= SETUP;
@@ -123,11 +120,9 @@ module PmodGYRO (
 				end
 			end
 			WAIT: begin
+				cs       <= 1'b1;
 				tx_begin <= 1'b0;
-				if (!cs && wait_cnt == WAIT_CS) begin
-					wait_cnt <= 0;
-					cs       <= 1'b1;
-				end else if (cs && wait_cnt == WAIT_RUN) begin
+				if (wait_cnt == WAIT_RUN) begin
 					state    <= state_next;
 					wait_cnt <= 0;
 				end else
