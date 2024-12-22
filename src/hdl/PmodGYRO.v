@@ -18,7 +18,6 @@ module PmodGYRO (
 
 	parameter [2:0] StateTYPE_idle = 0,
 	StateTYPE_setup = 1,
-	// StateTYPE_temp = 2,
 	StateTYPE_run = 3,
 	StateTYPE_hold = 4,
 	StateTYPE_wait_ss = 5,
@@ -33,10 +32,7 @@ module PmodGYRO (
 	parameter [16:0] SETUP_GYRO = 16'h0F20;
 	// address of X_AXIS (0x28) with read and multiple bytes selected (0xC0)
 	parameter [7:0]  DATA_READ_BEGIN = 8'hE8;
-	// address of TEMP (0x26) with read selected (0x80)
-	parameter [7:0]  TEMP_READ_BEGIN = 8'hA6;
 
-	parameter        MAX_BYTE_COUNT = 6;
 	reg [2:0]        byte_count;
 
 	parameter [11:0] SS_COUNT_MAX = 12'h0FF; // FFF
@@ -94,7 +90,7 @@ module PmodGYRO (
 				STATE <= StateTYPE_wait_ss;
 			end
 
-				// run
+			// run
 			StateTYPE_run :
 			if (byte_count == 0)
 				begin
@@ -163,7 +159,7 @@ module PmodGYRO (
 				if (count_wait == COUNT_WAIT_MAX)
 					begin
 						count_wait <= 0;
-							STATE <= StateTYPE_run;
+						STATE <= StateTYPE_run;
 					end
 				else
 					count_wait <= count_wait + 1'b1;
@@ -173,132 +169,66 @@ module PmodGYRO (
 
 endmodule : PmodGYRO
 
-module PmodGYRO_SPI_IF (
+module SPI (
 	input rst,
 	input clk,
 
-	input begin_transmission,
-	output reg end_transmission,
+	input            tx_begin,
+	output reg       tx_end,
+	input      [7:0] tx_data,
+	output reg [7:0] rx_data,
 
-	input [7:0] send_data,
-	output reg [7:0] recieved_data,
-
-	input slave_select,
-	input miso,
+	output reg sclk,
 	output reg mosi,
-	output sclk
+	input      miso
 );
-	parameter [15:0] SPI_CLK_COUNT_MAX = 16'hFFFF;
-	reg [15:0]       spi_clk_count;
+	wire       sclk_next;
+	reg [16:0] sclk_cnt;
 
-	reg              sclk_buffer;
-	reg              sclk_previous;
-
-	parameter [3:0]  RX_COUNT_MAX = 4'h8;
-	reg [3:0]        rx_count;
-
-	reg [7:0]        shift_register;
-
-	parameter [1:0]  RxTxTYPE_idle = 0,
-	RxTxTYPE_rx_tx = 1,
-	RxTxTYPE_hold = 2;
-	reg [1:0]        RxTxSTATE;
-
-	always @(posedge clk)
-	begin: tx_rx_process
-
-
-		if (rst == 1'b1)
-			begin
-				mosi <= 1'b1;
-				RxTxSTATE <= RxTxTYPE_idle;
-				recieved_data <= {8{1'b0}};
-				shift_register <= {8{1'b0}};
-			end
-		else
-			case (RxTxSTATE)
-
-				// idle
-				RxTxTYPE_idle :
-				begin
-					end_transmission <= 1'b0;
-					if (begin_transmission == 1'b1)
-					begin
-						RxTxSTATE <= RxTxTYPE_rx_tx;
-						rx_count <= {4{1'b0}};
-						shift_register <= send_data;
-					end
-				end
-
-				// rx_tx
-				RxTxTYPE_rx_tx :
-				//send bit
-				if (rx_count < RX_COUNT_MAX)
-					begin
-						if (sclk_previous == 1'b1 & sclk_buffer == 1'b0)
-							mosi <= shift_register[7];
-							//recieve bit
-						else if (sclk_previous == 1'b0 & sclk_buffer == 1'b1)
-						begin
-							shift_register[7:1] <= shift_register[6:0];
-							shift_register[0] <= miso;
-							rx_count <= rx_count + 1'b1;
-						end
-					end
-				else
-					begin
-						RxTxSTATE <= RxTxTYPE_hold;
-						end_transmission <= 1'b1;
-						recieved_data <= shift_register;
-					end
-
-					// hold
-				RxTxTYPE_hold :
-				begin
-					end_transmission <= 1'b0;
-					if (slave_select == 1'b1)
-						begin
-							mosi <= 1'b1;
-							RxTxSTATE <= RxTxTYPE_idle;
-						end
-					else if (begin_transmission == 1'b1)
-					begin
-						RxTxSTATE <= RxTxTYPE_rx_tx;
-						rx_count <= {4{1'b0}};
-						shift_register <= send_data;
-					end
-				end
-			endcase
-	end
-
-	always @(posedge clk) begin: spi_clk_generation
-		begin
-			if (rst == 1'b1)
-				begin
-					sclk_previous <= 1'b1;
-					sclk_buffer <= 1'b1;
-					spi_clk_count <= 0;
-				end
-
-			else if (RxTxSTATE == RxTxTYPE_rx_tx)
-				begin
-					if (spi_clk_count == SPI_CLK_COUNT_MAX)
-						begin
-							sclk_buffer <= (~sclk_buffer);
-							spi_clk_count <= 0;
-						end
-					else
-						begin
-							sclk_previous <= sclk_buffer;
-							spi_clk_count <= spi_clk_count + 1'b1;
-						end
-				end
-			else
-				sclk_previous <= 1'b1;
+	always @(posedge clk) begin : SCLK_GEN
+		sclk <= sclk_next;
+		if (rst) begin
+			sclk <= 1'b1;
+			sclk_cnt <= {{15{1'b1}}, 2'b00};
 		end
+		else if (state == RXTX)
+			sclk_cnt <= sclk_cnt + 1;
+		else
+			sclk_cnt <= {{15{1'b1}}, 2'b00};
 	end
+	assign sclk_next = sclk_cnt[16];
 
-	// Assign serial clock output
-	assign sclk = sclk_previous;
+	reg       state;
+	reg [3:0] bit_cnt;
+	reg [7:0] shift_reg;
 
-endmodule : PmodGYRO_SPI_IF
+	localparam IDLE = 1'b0;
+	localparam RXTX = 1'b1;
+
+	always @(posedge clk) begin : TX_PROC
+		if (rst == 1'b1)
+			state <= IDLE;
+		else case (state)
+			IDLE: begin
+				tx_end <= 1'b0;
+				if (tx_begin == 1'b1) begin
+					state     <= RXTX;
+					bit_cnt   <= 0;
+					shift_reg <= tx_data;
+				end
+			end
+			RXTX: begin
+				if (bit_cnt >= 8) begin
+					state   <= IDLE;
+					tx_end  <= 1'b1;
+					rx_data <= shift_reg;
+				end else if (sclk && !sclk_next) begin
+					mosi <= shift_reg[7];
+				end else if (!sclk && sclk_next) begin
+					bit_cnt   <= bit_cnt + 1;
+					shift_reg <= {shift_reg[6:0], miso};
+				end
+			end
+		endcase
+	end
+endmodule : SPI

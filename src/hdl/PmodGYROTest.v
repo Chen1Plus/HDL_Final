@@ -33,15 +33,14 @@ module PmodGYROTest (
         .z_axis_data(z_axis_data)
     );
 
-    PmodGYRO_SPI_IF C1(
-        .begin_transmission(begin_transmission),
-        .slave_select(gyro_cs),
-        .send_data(send_data),
-        .recieved_data(recieved_data),
+    SPI C1(
+        .tx_begin(begin_transmission),
+        .tx_data(send_data),
+        .rx_data(recieved_data),
         .miso(gyro_miso),
         .clk(clk),
         .rst(rst),
-        .end_transmission(end_transmission),
+        .tx_end(end_transmission),
         .mosi(gyro_mosi),
         .sclk(gyro_sclk)
     );
