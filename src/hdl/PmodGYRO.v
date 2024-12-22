@@ -15,15 +15,14 @@ module PmodGYRO (
 	output reg [15:0]    y_axis_data,
 	output reg [15:0]    z_axis_data
 );
+	reg [2:0] state;
+	reg [2:0] state_prev;
 
-	parameter [2:0] StateTYPE_idle = 0,
-	StateTYPE_setup = 1,
-	StateTYPE_run = 3,
-	StateTYPE_hold = 4,
-	StateTYPE_wait_ss = 5,
-	StateTYPE_wait_run = 6;
-	reg [2:0]        STATE;
-	reg [2:0]        previousSTATE;
+	localparam IDLE = 3'd0;
+	localparam SETUP = 3'd1;
+	localparam StateTYPE_run = 3'd3;
+	localparam StateTYPE_hold = 3'd4;
+	localparam StateTYPE_wait_run = 3'd6;
 
 	// setup control register 1 to enable x, y, and z. CTRL_REG1 (0x20)
 	// with read and multiple bytes not selected
@@ -54,22 +53,19 @@ module PmodGYRO (
 			y_axis_data <= {16{1'b0}};
 			z_axis_data <= {16{1'b0}};
 			ss_count <= {12{1'b0}};
-			STATE <= StateTYPE_idle;
-			previousSTATE <= StateTYPE_idle;
+			state <= IDLE;
+			state_prev <= IDLE;
 		end
-		else case (STATE)
+		else case (state)
 
-			StateTYPE_idle :
-			begin
+			IDLE: begin
 				cs <= 1'b1;
-				begin
-					byte_count <= 0;
-					axis_data <= {48{1'b0}};
-					STATE <= StateTYPE_setup;
-				end
+				byte_count <= 0;
+				axis_data <= {48{1'b0}};
+				state <= SETUP;
 			end
 
-			StateTYPE_setup:
+			SETUP:
 			if (byte_count < 2) begin
 				case (byte_count)
 					0: tx_data <= SETUP_GYRO[7:0];
@@ -80,12 +76,12 @@ module PmodGYRO (
 				cs <= 1'b0;
 				byte_count <= byte_count + 1'b1;
 				tx_begin <= 1'b1;
-				previousSTATE <= StateTYPE_setup;
-				STATE <= StateTYPE_hold;
+				state_prev <= SETUP;
+				state <= StateTYPE_hold;
 			end else begin
 				byte_count <= 0;
-				previousSTATE <= StateTYPE_setup;
-				STATE <= StateTYPE_wait_ss;
+				state_prev <= SETUP;
+				state <= StateTYPE_wait_run;
 			end
 
 			StateTYPE_run :
@@ -95,16 +91,16 @@ module PmodGYRO (
 					tx_data <= DATA_READ_BEGIN;
 					byte_count <= byte_count + 1'b1;
 					tx_begin <= 1'b1;
-					previousSTATE <= StateTYPE_run;
-					STATE <= StateTYPE_hold;
+					state_prev <= StateTYPE_run;
+					state <= StateTYPE_hold;
 				end
 			else if (byte_count <= 6)
 				begin
 					tx_data <= 8'h00;
 					byte_count <= byte_count + 1'b1;
 					tx_begin <= 1'b1;
-					previousSTATE <= StateTYPE_run;
-					STATE <= StateTYPE_hold;
+					state_prev <= StateTYPE_run;
+					state <= StateTYPE_hold;
 				end
 			else
 				begin
@@ -112,14 +108,14 @@ module PmodGYRO (
 					x_axis_data <= axis_data[15:0];
 					y_axis_data <= axis_data[31:16];
 					z_axis_data <= axis_data[47:32];
-					previousSTATE <= StateTYPE_run;
-					STATE <= StateTYPE_wait_ss;
+					state_prev <= StateTYPE_run;
+					state <= StateTYPE_wait_run;
 				end
 
 			StateTYPE_hold: begin
 				tx_begin <= 1'b0;
 				if (tx_end == 1'b1) begin
-					if (previousSTATE == StateTYPE_run & byte_count != 1) begin
+					if (state_prev == StateTYPE_run & byte_count != 1) begin
 						case (byte_count)
 							3'd2 : axis_data[7:0] <= rx_data;
 							3'd3 : axis_data[15:8] <= rx_data;
@@ -130,33 +126,22 @@ module PmodGYRO (
 							default : ;
 						endcase
 					end
-					STATE <= previousSTATE;
+					state <= state_prev;
 				end
-			end
-
-			StateTYPE_wait_ss :
-			begin
-				tx_begin <= 1'b0;
-				if (ss_count == SS_COUNT_MAX)
-					begin
-						cs <= 1'b1;
-						ss_count <= 0;
-						STATE <= StateTYPE_wait_run;
-					end
-				else
-					ss_count <= ss_count + 1'b1;
 			end
 
 			StateTYPE_wait_run :
 			begin
 				tx_begin <= 1'b0;
-				if (count_wait == COUNT_WAIT_MAX) begin
+				if (!cs && count_wait == SS_COUNT_MAX) begin
+					cs <= 1'b1;
 					count_wait <= 0;
-					STATE <= StateTYPE_run;
+				end else if (cs && count_wait == COUNT_WAIT_MAX) begin
+					count_wait <= 0;
+					state <= StateTYPE_run;
 				end else
 					count_wait <= count_wait + 1'b1;
 			end
 		endcase
 	end
-
 endmodule : PmodGYRO
