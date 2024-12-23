@@ -90,7 +90,7 @@ module BT2Test(
 
     wire baud_pulse;
 
-    PulseGen #(.OUT_FREQ(115200)) pgtest (
+    PulseGen #(.OUT_FREQ(9600)) pgtest (
         .rst(rst),
         .clk(clk),
         .out(baud_pulse)
@@ -106,11 +106,13 @@ module BT2Test(
         .tx(uart_output)
     );
 
-    ila_0 ILA(
+    ila_3 ILA(
         .clk(clk),
         .probe0(master_rx),
-        .probe1(slave_tx),
-        .probe2(baud_pulse)
+        .probe1(master_tx),
+        .probe2(slave_rx),
+        .probe3(slave_tx),
+        .probe4(baud_pulse)
     );
 
     always @(*) begin
