@@ -9,7 +9,8 @@ module PmodGYRO (
 
 	output reg [15:0] data_x,
 	output reg [15:0] data_y,
-	output reg [15:0] data_z
+	output reg [15:0] data_z,
+	output reg update
 );
 	// Pmod GYRO pre-defined constants ========================================
 	// write (0x00) value XX to register YY, format: XX (0x00 | YY)
@@ -50,7 +51,7 @@ module PmodGYRO (
 	reg [23:0] wait_cnt;
 	reg [47:0] data;
 
-	localparam WAIT_RUN = 24'hFFFFFF;
+	localparam WAIT_RUN = 24'h7FFFFF;
 
 	always @(posedge clk) begin
 		if (rst) begin
@@ -61,12 +62,15 @@ module PmodGYRO (
 			data_x    <= 0;
 			data_y    <= 0;
 			data_z    <= 0;
+			update    <= 0;
 		end else case (state)
 			IDLE: begin
+				update   <= 0;
 				state    <= SETUP;
 				byte_cnt <= 0;
 			end
 			SETUP: begin
+				update <= 0;
 				if (byte_cnt < 2) begin
 					state      <= HOLD;
 					state_next <= SETUP;
@@ -89,6 +93,7 @@ module PmodGYRO (
 			end
 			RUN: begin
 				if (byte_cnt < 7) begin
+					update     <= 0;
 					state      <= HOLD;
 					state_next <= RUN;
 					byte_cnt   <= byte_cnt + 1;
@@ -96,6 +101,7 @@ module PmodGYRO (
 					tx_begin   <= 1'b1;
 					tx_data    <= byte_cnt ? 8'h00 : READ_DATA_CMD;
 				end else begin
+					update     <= 1;
 					state      <= WAIT;
 					state_next <= RUN;
 					byte_cnt   <= 0;
@@ -105,6 +111,7 @@ module PmodGYRO (
 				end
 			end
 			HOLD: begin
+				update   <= 0;
 				tx_begin <= 1'b0;
 				if (tx_end == 1'b1) begin
 					state <= state_next;
@@ -120,6 +127,7 @@ module PmodGYRO (
 				end
 			end
 			WAIT: begin
+				update   <= 0;
 				cs       <= 1'b1;
 				tx_begin <= 1'b0;
 				if (wait_cnt == WAIT_RUN) begin

@@ -2,15 +2,33 @@ module TopGlove (
     input clk,
     input rst,
     input [1:0] sw,
+    input btn_up,
+    input btn_down,
+    input btn_left,
+    input btn_center,
+
     output gyro_cs,
     output gyro_sclk,
     output gyro_mosi,
     input  gyro_miso,
+
     output reg [15:0] LED,
+
     output      master_rx,
     input       master_tx,
     output      master_cts
 );
+    wire btn_up_db, btn_down_db, btn_left_db, btn_center_db;
+    Debounce db_up(.clk(clk), .in(btn_up), .out(btn_up_db));
+    Debounce db_down(.clk(clk), .in(btn_down), .out(btn_down_db));
+    Debounce db_left(.clk(clk), .in(btn_left), .out(btn_left_db));
+    Debounce db_center(.clk(clk), .in(btn_center), .out(btn_center_db));
+    wire btn_up_pulse, btn_down_pulse, btn_left_pulse, btn_center_pulse;
+    OnePulse op_up(.clk(clk), .in(btn_up_db), .out(btn_up_pulse));
+    OnePulse op_down(.clk(clk), .in(btn_down_db), .out(btn_down_pulse));
+    OnePulse op_left(.clk(clk), .in(btn_left_db), .out(btn_left_pulse));
+    OnePulse op_center(.clk(clk), .in(btn_center_db), .out(btn_center_pulse));
+
     assign master_cts = 0;
 
     wire send_pulse;
@@ -21,6 +39,7 @@ module TopGlove (
     );
 
     wire [15:0] data_x, data_y, data_z;
+    wire update;
 
     PmodGYRO pgyro0 (
         .rst   (rst),
@@ -31,7 +50,8 @@ module TopGlove (
         .miso  (gyro_miso),
         .data_x(data_x),
         .data_y(data_y),
-        .data_z(data_z)
+        .data_z(data_z),
+        .update(update)
     );
 
     wire ready;
@@ -47,67 +67,89 @@ module TopGlove (
         .tx   (master_rx)
     );
 
-    // left -> y < 0
-    // top -> z < 0
-
-    reg [1:0] state;
+    reg [63:0][7:0] buffer;
+    reg [5:0] head, tail;
+    
+    reg [2:0] state;
     localparam SEND_LR = 0;
     localparam SEND_TB = 1;
-    localparam RESET_CURSOR = 2;
+    localparam SEND_SCROLL = 2;
+    localparam SEND_CLICK = 3;
+    localparam SEND_RESET_CURSUR = 4;
 
     always @(posedge clk, posedge rst) begin
         if (rst) begin
-            state <= RESET_CURSOR;
+            state <= SEND_LR;
             send <= 0;
             send_data <= 0;
+            head <= 0;
+            tail <= 0;
         end else begin
-            case (state)
-                RESET_CURSOR: begin
-                    send_data <= 8'h63; // c
-                    if (send_pulse) begin
-                        send <= 1;
-                        state <= SEND_LR;
-                    end else begin
-                        send <= 0;
-                        state <= RESET_CURSOR;
-                    end
-                end
-                SEND_LR: begin
-                    if ($signed(data_y[15:11]) < $signed(-1)) begin
-                        send_data <= 2; // l
-                    end else if ($signed(data_y[15:11]) > $signed(1)) begin
-                        send_data <= 3; // r
-                    end else begin
-                        send_data <= 8'hff; // \n
-                    end
-                    if (send_pulse) begin
-                        send <= 1;
-                        state <= SEND_TB;
-                    end else begin
-                        send <= 0;
-                        state <= SEND_LR;
-                    end
-                end
-                SEND_TB: begin
-                    if ($signed(data_z[15:11]) < $signed(-1)) begin
-                        send_data <= 0; // t
-                    end else if ($signed(data_z[15:11]) > $signed(1)) begin
-                        send_data <= 1; // b
-                    end else begin
-                        send_data <= 8'hff; // \n
-                    end
-                    if (send_pulse) begin
-                        send <= 1;
-                        state <= SEND_LR;
-                    end else begin
-                        send <= 0;
+            if (ready && head != tail) begin
+                send <= 1;
+                send_data <= buffer[head];
+                head <= head + 1;
+            end else begin
+                send <= 0;
+            end
+
+            if (tail + 1 != head) begin
+                case (state)
+                    SEND_LR: begin
+                        if (update) begin
+                            if ($signed(data_y[15:11]) < $signed(-1)) begin
+                                buffer[tail] <= 2; // l
+                                tail <= tail + 1;
+                            end else if ($signed(data_y[15:11]) > $signed(1)) begin
+                                buffer[tail] <= 3; // r
+                                tail <= tail + 1;
+                            end
+                        end
                         state <= SEND_TB;
                     end
-                end
-                default: begin
-                    state <= RESET_CURSOR;
-                end
-            endcase
+                    SEND_TB: begin
+                        if (update) begin
+                            if ($signed(data_z[15:11]) < $signed(-1)) begin
+                                buffer[tail] <= 0; // t
+                                tail <= tail + 1;
+                            end else if ($signed(data_z[15:11]) > $signed(1)) begin
+                                buffer[tail] <= 1; // b
+                                tail <= tail + 1;
+                            end
+                        end
+                        state <= SEND_SCROLL;
+                    end
+                    SEND_SCROLL: begin
+                        if (btn_up_pulse) begin
+                            buffer[tail] <= 6;
+                            tail <= tail + 1;
+                        end else if (btn_down_pulse) begin
+                            buffer[tail] <= 7;
+                            tail <= tail + 1;
+                        end
+                        state <= SEND_CLICK;
+                    end
+                    SEND_CLICK: begin
+                        if (btn_left_pulse) begin
+                            buffer[tail] <= 4;
+                            tail <= tail + 1;
+                        end
+                        state <= SEND_RESET_CURSUR;
+                    end
+                    SEND_RESET_CURSUR: begin
+                        if (btn_center_pulse) begin
+                            buffer[tail] <= 8;
+                            tail <= tail + 1;
+                        end
+                        state <= SEND_LR;
+                    end
+                    default: begin
+                        state <= SEND_LR;
+                    end
+                endcase
+            end else begin
+                state <= SEND_LR;
+            end
         end
     end
 
@@ -116,5 +158,13 @@ module TopGlove (
         2'b01:   LED <= data_y;
         default: LED <= data_z;
     endcase
+
+    ila_0 ILA(
+        .clk(clk),
+        .probe0(head),
+        .probe1(tail),
+        .probe2(ready),
+        .probe3(update)
+    );
     
 endmodule : TopGlove
