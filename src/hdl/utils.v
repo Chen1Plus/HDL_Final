@@ -1,3 +1,29 @@
+module Debounce (
+    input  clk,
+    input  in,
+    output out
+);
+    reg [9:0] shift_reg;
+
+    always @(posedge clk) begin
+        shift_reg <= {shift_reg[8:0], in};
+    end
+    assign out = &shift_reg;
+endmodule : Debounce
+
+module OnePulse(
+    input  clk,
+    input  in,
+    output out
+);
+    reg in_d;
+
+    always @(posedge clk) begin
+        in_d <= in;
+    end
+    assign out = in & ~in_d;
+endmodule : OnePulse
+
 module PulseGen #(
     parameter CLK_FREQ = 100_000_000,
     parameter OUT_FREQ = 9600
