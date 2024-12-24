@@ -51,7 +51,7 @@ module PmodGYRO (
 	reg [23:0] wait_cnt;
 	reg [47:0] data;
 
-	localparam WAIT_RUN = 24'h7FFFFF;
+	localparam WAIT_RUN = 24'h07FFFF;
 
 	always @(posedge clk) begin
 		if (rst) begin

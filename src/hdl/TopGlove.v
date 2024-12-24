@@ -14,6 +14,7 @@ module TopGlove (
 
     output reg [15:0] LED,
 
+    input       master_rts,
     output      master_rx,
     input       master_tx,
     output      master_cts
@@ -67,8 +68,8 @@ module TopGlove (
         .tx   (master_rx)
     );
 
-    reg [63:0][7:0] buffer;
-    reg [5:0] head, tail;
+    reg [3:0][7:0] buffer;
+    reg [1:0] head, tail;
     
     reg [2:0] state;
     localparam SEND_LR = 0;
@@ -85,7 +86,7 @@ module TopGlove (
             head <= 0;
             tail <= 0;
         end else begin
-            if (ready && head != tail) begin
+            if (ready && master_rts == 0 && head != tail) begin
                 send <= 1;
                 send_data <= buffer[head];
                 head <= head + 1;
@@ -153,18 +154,18 @@ module TopGlove (
         end
     end
 
-    always @* case (sw)
-        2'b00:   LED <= data_x;
-        2'b01:   LED <= data_y;
-        default: LED <= data_z;
-    endcase
+    // always @* case (sw)
+    //     2'b00:   LED <= data_x;
+    //     2'b01:   LED <= data_y;
+    //     default: LED <= data_z;
+    // endcase
 
-    ila_0 ILA(
-        .clk(clk),
-        .probe0(head),
-        .probe1(tail),
-        .probe2(ready),
-        .probe3(update)
-    );
+    // ila_0 ILA(
+    //     .clk(clk),
+    //     .probe0(head),
+    //     .probe1(tail),
+    //     .probe2(ready),
+    //     .probe3(update)
+    // );
     
 endmodule : TopGlove
