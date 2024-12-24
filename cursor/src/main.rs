@@ -3,7 +3,13 @@ use std::env;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use enigo::{Axis::Vertical, Button, Coordinate::Rel, Direction::Click, Enigo, Mouse};
+use enigo::{
+    Axis::Vertical,
+    Button,
+    Coordinate::{Abs, Rel},
+    Direction::Click,
+    Enigo, Mouse,
+};
 use serial2::SerialPort;
 
 fn main() {
@@ -39,6 +45,11 @@ fn main() {
                 5 => enigo.button(Button::Right, Click).unwrap(), // right click
                 6 => enigo.scroll(-1, Vertical).unwrap(),         // scroll up
                 7 => enigo.scroll(1, Vertical).unwrap(),          // scroll down
+                8 => {
+                    // center
+                    let (x, y) = enigo.main_display().unwrap();
+                    enigo.move_mouse(x / 2, y / 2, Abs).unwrap();
+                }
                 _ => (),
             }
         }
