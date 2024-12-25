@@ -70,13 +70,10 @@ module TopGlove (
 
     reg [3:0][7:0] buffer;
     reg [1:0] head, tail;
-    
+
     reg [2:0] state;
     localparam SEND_LR = 0;
     localparam SEND_TB = 1;
-    localparam SEND_SCROLL = 2;
-    localparam SEND_CLICK = 3;
-    localparam SEND_RESET_CURSUR = 4;
 
     always @(posedge clk, posedge rst) begin
         if (rst) begin
@@ -95,7 +92,19 @@ module TopGlove (
             end
 
             if (tail + 1 != head) begin
-                case (state)
+                if (btn_left_pulse) begin
+                    buffer[tail] <= 4;
+                    tail <= tail + 1;
+                end else if (btn_center_pulse) begin
+                    buffer[tail] <= 8;
+                    tail <= tail + 1;
+                end else if (btn_up_pulse) begin
+                    buffer[tail] <= 6;
+                    tail <= tail + 1;
+                end else if (btn_down_pulse) begin
+                    buffer[tail] <= 7;
+                    tail <= tail + 1;
+                end else case (state)
                     SEND_LR: begin
                         if (update) begin
                             if ($signed(data_y[15:11]) < $signed(-1)) begin
@@ -105,8 +114,8 @@ module TopGlove (
                                 buffer[tail] <= 3; // r
                                 tail <= tail + 1;
                             end
+                            state <= SEND_TB;
                         end
-                        state <= SEND_TB;
                     end
                     SEND_TB: begin
                         if (update) begin
@@ -117,32 +126,8 @@ module TopGlove (
                                 buffer[tail] <= 1; // b
                                 tail <= tail + 1;
                             end
+                            state <= SEND_LR;
                         end
-                        state <= SEND_SCROLL;
-                    end
-                    SEND_SCROLL: begin
-                        if (btn_up_pulse) begin
-                            buffer[tail] <= 6;
-                            tail <= tail + 1;
-                        end else if (btn_down_pulse) begin
-                            buffer[tail] <= 7;
-                            tail <= tail + 1;
-                        end
-                        state <= SEND_CLICK;
-                    end
-                    SEND_CLICK: begin
-                        if (btn_left_pulse) begin
-                            buffer[tail] <= 4;
-                            tail <= tail + 1;
-                        end
-                        state <= SEND_RESET_CURSUR;
-                    end
-                    SEND_RESET_CURSUR: begin
-                        if (btn_center_pulse) begin
-                            buffer[tail] <= 8;
-                            tail <= tail + 1;
-                        end
-                        state <= SEND_LR;
                     end
                     default: begin
                         state <= SEND_LR;
@@ -167,5 +152,5 @@ module TopGlove (
     //     .probe2(ready),
     //     .probe3(update)
     // );
-    
+
 endmodule : TopGlove
